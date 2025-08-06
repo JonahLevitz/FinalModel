@@ -36,7 +36,7 @@ class RaspberryPiEmergencyDetector:
         """Initialize the Raspberry Pi detector"""
         self.model_path = model_path
         self.confidence_thresholds = {
-            'car_crash': 0.3,
+            'car_crash': 0.7,  # Increased from 0.3 to 0.7 to reduce false positives
             'fire': 0.6,
             'person_fainted': 0.6
         }
@@ -51,6 +51,10 @@ class RaspberryPiEmergencyDetector:
         # Detection history
         self.detections = []
         self.is_running = False
+        
+        # Detection cooldown to prevent spam
+        self.last_detection_time = {}
+        self.detection_cooldown = 15  # seconds between same type detections (longer for Pi)
         
         # Create directories
         self.detections_dir = Path("/home/pi/emergency_detections")
@@ -132,31 +136,41 @@ class RaspberryPiEmergencyDetector:
                             continue
                         
                         if confidence >= threshold:
-                            # Get bounding box coordinates
-                            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                            bbox = [float(x1), float(y1), float(x2), float(y2)]
-                            
-                            # Create detection object
-                            detection = {
-                                'timestamp': datetime.datetime.now().isoformat(),
-                                'time': datetime.datetime.now().strftime("%H:%M:%S"),
-                                'date': datetime.datetime.now().strftime("%Y-%m-%d"),
-                                'type': event_type,
-                                'confidence': confidence,
-                                'bbox': bbox,
-                                'location': 'Raspberry Pi Camera'
-                            }
-                            
-                            detections.append(detection)
-                            self.detections.append(detection)
-                            
-                            logging.info(f"🚨 EMERGENCY DETECTED: {event_type} (confidence: {confidence:.2f})")
-                            
-                            # Save detection image
-                            self.save_detection(frame, detection)
-                            
-                            # Send alert (can be extended for SMS/email)
-                            self.send_alert(detection)
+                            # Check cooldown to prevent spam detections
+                            current_time = time.time()
+                            if event_type not in self.last_detection_time or \
+                               current_time - self.last_detection_time[event_type] >= self.detection_cooldown:
+                                
+                                # Get bounding box coordinates
+                                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                bbox = [float(x1), float(y1), float(x2), float(y2)]
+                                
+                                # Create detection object
+                                detection = {
+                                    'timestamp': datetime.datetime.now().isoformat(),
+                                    'time': datetime.datetime.now().strftime("%H:%M:%S"),
+                                    'date': datetime.datetime.now().strftime("%Y-%m-%d"),
+                                    'type': event_type,
+                                    'confidence': confidence,
+                                    'bbox': bbox,
+                                    'location': 'Raspberry Pi Camera'
+                                }
+                                
+                                detections.append(detection)
+                                self.detections.append(detection)
+                                
+                                logging.info(f"🚨 EMERGENCY DETECTED: {event_type} (confidence: {confidence:.2f})")
+                                
+                                # Save detection image
+                                self.save_detection(frame, detection)
+                                
+                                # Send alert (can be extended for SMS/email)
+                                self.send_alert(detection)
+                                
+                                # Update cooldown
+                                self.last_detection_time[event_type] = current_time
+                            else:
+                                logging.info(f"⏰ Skipping {event_type} detection (cooldown active)")
             
             return detections
             
