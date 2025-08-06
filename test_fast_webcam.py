@@ -22,24 +22,16 @@ class FastEmergencyDetector:
         self.process_interval = 2.0  # Process every 2 seconds instead of every frame
         self.last_process_time = 0
         
-        # Emergency class mapping
+        # Emergency class mapping - Only the 3 main classes we want
         self.emergency_classes = [
-            'car_crash', 'accident_victim', 'fire', 'smoke', 
-            'person_fainted', 'person_down', 'person_injured', 
-            'medical_emergency', 'emergency_vehicle'
+            'car_crash', 'fire', 'person_fainted'
         ]
         
         # Emergency class colors
         self.emergency_colors = {
             'car_crash': (0, 0, 255),        # Red
-            'accident_victim': (0, 165, 255), # Orange
             'fire': (0, 0, 255),             # Red
-            'smoke': (128, 128, 128),        # Gray
             'person_fainted': (255, 0, 255), # Purple
-            'person_down': (0, 0, 255),      # Red
-            'person_injured': (0, 165, 255), # Orange
-            'medical_emergency': (0, 255, 255), # Yellow
-            'emergency_vehicle': (255, 255, 0)  # Cyan
         }
         
         # Detection history
@@ -61,7 +53,7 @@ class FastEmergencyDetector:
         
         print("🚁 Fast Emergency Detection System")
         print("=" * 50)
-        print("Detecting: Car Crashes, Fires, Medical Emergencies")
+        print("Detecting: Car Crashes, Fires, Fainted People")
         print("Press 'q' to quit, 's' to save frame, 'p' to process now")
         print("⚡ Processing every 2 seconds for better performance")
     
@@ -92,12 +84,22 @@ class FastEmergencyDetector:
                             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                             bbox = [float(x1), float(y1), float(x2), float(y2)]
                             
-                            # Get class label
+                            # Get class label - Map to our 3 main classes
                             class_id = int(box.cls[0])
-                            if class_id < len(self.emergency_classes):
-                                label = self.emergency_classes[class_id]
+                            
+                            # Map model classes to our 3 main classes
+                            if class_id == 0:  # car_crash
+                                label = 'car_crash'
+                                # Lower threshold for car_crash since it has lower confidence
+                                if confidence < 0.3:
+                                    continue
+                            elif class_id == 2:  # fire
+                                label = 'fire'
+                            elif class_id == 4:  # person_fainted
+                                label = 'person_fainted'
                             else:
-                                label = f"class_{class_id}"
+                                # Skip other classes
+                                continue
                             
                             # Create detection object
                             detection = {
