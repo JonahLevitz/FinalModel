@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam Test - Drone Emergency Detection</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        .camera-feed {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+        }
+        .detection-box {
+            position: absolute;
+            border: 3px solid #ef4444;
+            background-color: rgba(239, 68, 68, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Header -->
+    <header class="bg-gray-800 text-white p-4">
+        <div class="flex justify-between items-center">
+            <h1 class="text-2xl font-bold">Webcam Test - Emergency Detection</h1>
+            <a href="/" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                ← Back to Dashboard
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container mx-auto p-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Camera Feed -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold text-gray-800">Live Camera Feed</h2>
+                    <div class="flex space-x-2">
+                        <button id="start-camera" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+                            📷 Start Camera
+                        </button>
+                        <button id="stop-camera" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg" disabled>
+                            🛑 Stop Camera
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="relative">
+                    <video id="video" class="w-full h-64 bg-gray-200 rounded-lg camera-feed" autoplay muted></video>
+                    <canvas id="canvas" class="hidden"></canvas>
+                    <div id="detection-overlay" class="absolute top-0 left-0 w-full h-full pointer-events-none"></div>
+                </div>
+                
+                <div class="mt-4 text-center">
+                    <p class="text-sm text-gray-600" id="camera-status">Camera not started</p>
+                </div>
+            </div>
+
+            <!-- Detection Results -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Detection Results</h2>
+                
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                        <div>
+                            <h3 class="font-semibold text-blue-800">Detection Status</h3>
+                            <p class="text-sm text-blue-600" id="detection-status">Waiting for camera...</p>
+                        </div>
+                        <div class="w-3 h-3 bg-blue-500 rounded-full" id="status-indicator"></div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="p-3 bg-green-50 rounded-lg">
+                            <h4 class="font-semibold text-green-800">Detections Found</h4>
+                            <p class="text-2xl font-bold text-green-600" id="detections-count">0</p>
+                        </div>
+                        <div class="p-3 bg-yellow-50 rounded-lg">
+                            <h4 class="font-semibold text-yellow-800">Confidence</h4>
+                            <p class="text-2xl font-bold text-yellow-600" id="confidence-level">0%</p>
+                        </div>
+                    </div>
+                    
+                    <div class="p-3 bg-gray-50 rounded-lg">
+                        <h4 class="font-semibold text-gray-800 mb-2">Recent Detections</h4>
+                        <div id="detections-list" class="space-y-2 max-h-32 overflow-y-auto">
+                            <p class="text-sm text-gray-500">No detections yet</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="mt-6 bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Test Controls</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button id="test-detection" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg">
+                    🚨 Test Emergency Detection
+                </button>
+                <button id="simulate-crash" class="bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-lg">
+                    🚗 Simulate Car Crash
+                </button>
+                <button id="simulate-fire" class="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg">
+                    🔥 Simulate Fire
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Socket.IO connection
+        const socket = io();
+        
+        // DOM elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const detectionOverlay = document.getElementById('detection-overlay');
+        const startCameraBtn = document.getElementById('start-camera');
+        const stopCameraBtn = document.getElementById('stop-camera');
+        const cameraStatus = document.getElementById('camera-status');
+        const detectionStatus = document.getElementById('detection-status');
+        const statusIndicator = document.getElementById('status-indicator');
+        const detectionsCount = document.getElementById('detections-count');
+        const confidenceLevel = document.getElementById('confidence-level');
+        const detectionsList = document.getElementById('detections-list');
+        const testDetectionBtn = document.getElementById('test-detection');
+        const simulateCrashBtn = document.getElementById('simulate-crash');
+        const simulateFireBtn = document.getElementById('simulate-fire');
+
+        let stream = null;
+        let detectionCount = 0;
+        let isProcessing = false;
+
+        // Camera functions
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: 640, 
+                        height: 480,
+                        facingMode: 'environment'
+                    } 
+                });
+                video.srcObject = stream;
+                
+                startCameraBtn.disabled = true;
+                stopCameraBtn.disabled = false;
+                cameraStatus.textContent = 'Camera active';
+                detectionStatus.textContent = 'Processing video feed...';
+                statusIndicator.className = 'w-3 h-3 bg-green-500 rounded-full';
+                
+                // Start processing frames
+                processFrames();
+                
+                // Notify server
+                fetch('/api/start_webcam', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+            } catch (error) {
+                console.error('Error starting camera:', error);
+                cameraStatus.textContent = 'Error: ' + error.message;
+                statusIndicator.className = 'w-3 h-3 bg-red-500 rounded-full';
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            
+            video.srcObject = null;
+            startCameraBtn.disabled = false;
+            stopCameraBtn.disabled = true;
+            cameraStatus.textContent = 'Camera stopped';
+            detectionStatus.textContent = 'Camera not active';
+            statusIndicator.className = 'w-3 h-3 bg-gray-500 rounded-full';
+            
+            // Clear detections
+            detectionOverlay.innerHTML = '';
+            detectionsCount.textContent = '0';
+            confidenceLevel.textContent = '0%';
+        }
+
+        async function processFrames() {
+            if (!stream || isProcessing) return;
+            
+            isProcessing = true;
+            
+            try {
+                // Capture frame
+                const context = canvas.getContext('2d');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0);
+                
+                // Convert to base64
+                const frameData = canvas.toDataURL('image/jpeg', 0.8);
+                
+                // Send to server for processing
+                const response = await fetch('/api/process_frame', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ frame: frameData })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success && result.detections) {
+                    displayDetections(result.detections);
+                }
+                
+            } catch (error) {
+                console.error('Error processing frame:', error);
+            }
+            
+            isProcessing = false;
+            
+            // Continue processing
+            if (stream) {
+                setTimeout(processFrames, 1000); // Process every second
+            }
+        }
+
+        function displayDetections(detections) {
+            detectionOverlay.innerHTML = '';
+            detectionCount += detections.length;
+            detectionsCount.textContent = detectionCount;
+            
+            detections.forEach((detection, index) => {
+                // Create detection box
+                const box = document.createElement('div');
+                box.className = 'detection-box';
+                box.style.left = detection.bbox[0] + 'px';
+                box.style.top = detection.bbox[1] + 'px';
+                box.style.width = (detection.bbox[2] - detection.bbox[0]) + 'px';
+                box.style.height = (detection.bbox[3] - detection.bbox[1]) + 'px';
+                
+                // Add label
+                const label = document.createElement('div');
+                label.className = 'absolute -top-6 left-0 bg-red-500 text-white px-2 py-1 text-xs rounded';
+                label.textContent = `${detection.detection_type} (${(detection.confidence * 100).toFixed(1)}%)`;
+                box.appendChild(label);
+                
+                detectionOverlay.appendChild(box);
+                
+                // Add to list
+                const listItem = document.createElement('div');
+                listItem.className = 'text-sm p-2 bg-red-100 rounded';
+                listItem.textContent = `${detection.detection_type} - ${(detection.confidence * 100).toFixed(1)}% confidence`;
+                detectionsList.insertBefore(listItem, detectionsList.firstChild);
+                
+                // Keep only last 5 detections
+                while (detectionsList.children.length > 5) {
+                    detectionsList.removeChild(detectionsList.lastChild);
+                }
+                
+                // Update confidence
+                confidenceLevel.textContent = (detection.confidence * 100).toFixed(1) + '%';
+            });
+        }
+
+        // Event listeners
+        startCameraBtn.addEventListener('click', startCamera);
+        stopCameraBtn.addEventListener('click', stopCamera);
+
+        testDetectionBtn.addEventListener('click', function() {
+            simulateDetection('medical_emergency', 0.85);
+        });
+
+        simulateCrashBtn.addEventListener('click', function() {
+            simulateDetection('car_crash', 0.92);
+        });
+
+        simulateFireBtn.addEventListener('click', function() {
+            simulateDetection('fire', 0.78);
+        });
+
+        function simulateDetection(type, confidence) {
+            const detection = {
+                drone_id: 'drone_001',
+                detection_type: type,
+                confidence: confidence,
+                bbox: [100, 100, 300, 300],
+                reason: 'Simulated detection'
+            };
+
+            fetch('/api/add_detection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(detection)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Simulated detection added');
+                }
+            });
+        }
+
+        // Socket events
+        socket.on('connect', function() {
+            console.log('Connected to webcam test');
+        });
+
+        socket.on('new_detection', function(data) {
+            console.log('New detection:', data);
+            // Update UI with new detection
+        });
+    </script>
+</body>
+</html> 
