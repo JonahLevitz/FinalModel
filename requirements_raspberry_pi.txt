@@ -1,0 +1,27 @@
+# Raspberry Pi Emergency Detection System Requirements
+# Optimized for ARM architecture and Pi Zero
+
+# Core ML dependencies (ARM optimized)
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.0.0
+
+# Computer vision
+opencv-python>=4.8.0
+numpy>=1.21.0
+Pillow>=9.0.0
+
+# Pi Camera specific
+picamera2>=0.3.0
+
+# System utilities
+psutil>=5.9.0
+python-dateutil>=2.8.0
+
+# Logging and monitoring
+colorlog>=6.7.0
+
+# Optional: For future enhancements
+# twilio>=7.0.0  # For SMS alerts
+# smtplib  # Built-in for email
+# requests>=2.28.0  # For cloud integration 
